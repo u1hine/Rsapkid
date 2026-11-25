@@ -1,0 +1,7 @@
+[package]
+name = "Rsapkid"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+zip = "6"
