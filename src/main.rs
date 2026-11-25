@@ -4,9 +4,45 @@ use std::fs::File;
 use std::path::Path;
 use zip::ZipArchive;
 use std::collections::HashMap;
+use clap::Parser;
+
+
+#[derive(Debug, Parser)]
+#[command(name = "Rsapkid")]
+#[command(about = "APK壳扫描工具，支持单文件扫描 / 目录批量扫描")]
+#[command(version)]
+struct Args {
+    /// 单个APK文件路径
+    #[arg(conflicts_with = "dir")]
+    apk: Option<String>,
+
+    /// 批量扫描目录下所有APK
+    #[arg(short, long, conflicts_with = "apk")]
+    dir: Option<String>,
+}
+
+fn scan_dir(dir: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let entries = std::fs::read_dir(dir)?;
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_file() {
+            if let Some(ext) = path.extension() {
+                if ext.eq_ignore_ascii_case("apk") {
+                    let p = path.to_string_lossy();
+                    println!("正在扫描：{}", p);
+                    if let Err(e) = scan_apk(&p) {
+                        eprintln!("扫描 {} 失败: {}", p, e);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
 // 扫描 APK
-fn scan_apk<P: AsRef<Path>>(apk_path: P) -> Result<(), Box<dyn std::error::Error>> {
-    let file = File::open(apk_path)?;
+fn scan_apk(path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let file = File::open(path)?;
     let mut archive = ZipArchive::new(file)?;
 
     let signatures = get_signatures();
@@ -167,11 +203,15 @@ fn get_signatures() -> HashMap<&'static str, &'static str> {
         ("libexec.so", "爱加密"),
         ("libexecmain.so", "爱加密"),
         ("af.bin", "爱加密"),
+        ("libijm-emulator.so", "爱加密"),
         ("signed.bin", "爱加密"),
         ("ijiami.dat", "爱加密"),
         ("libexecv3.so", "爱加密3代壳"),
         ("ijiami3.ajm", "爱加密3代壳"),
         ("libijmDataEncryption.so", "爱加密5代壳"),
+        ("libijmDataEncryption_x86.so", "爱加密5代壳"),
+        ("libijmDataEncryption_x86_64.so", "爱加密5代壳"),
+        ("libijmDataEncryption_arm64.so", "爱加密5代壳"),
         ("IJMDal.Data", "爱加密5代壳"),
         ("ijiami.ajm", "爱加密企业版"),
 
@@ -299,16 +339,26 @@ fn get_signatures() -> HashMap<&'static str, &'static str> {
 }
 
 fn main() {
-    let apk = std::env::args()
-        .nth(1)
-        .or_else(|| {
-            eprintln!("用法: Rsapkid <apk路径>");
-            None
-        });
+    let args = Args::parse();
 
-    let Some(apk) = apk else { return };
-
-    if let Err(e) = scan_apk(apk) {
-        eprintln!("扫描失败: {}", e);
+    match (args.apk, args.dir) {
+        (Some(apk), None) => {
+            if let Err(e) = scan_apk(&apk) {
+                eprintln!("扫描 {} 失败: {}", apk, e);
+            }
+        }
+        (None, Some(dir)) => {
+            if let Err(e) = scan_dir(&dir) {
+                eprintln!("批量扫描目录 {} 失败: {}", dir, e);
+            }
+        }
+        (None, None) => {
+            eprintln!("用法：");
+            eprintln!("  Rsapkid <apk路径>        扫描单个APK");
+            eprintln!("  Rsapkid -d <文件夹路径>  批量扫描文件夹内所有APK");
+            eprintln!("使用 -h / --help 查看详细帮助");
+        }
+        // clap 的 conflicts_with 已经拦截同时传 apk 和 -d，这里不会走到
+        (Some(_), Some(_)) => unreachable!(),
     }
 }
